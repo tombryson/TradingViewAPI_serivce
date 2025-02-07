@@ -232,7 +232,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	spreadsheetID := "1wU8AsCJDB1hH2rPat-bHmb86OSJQk22CuTb87n4pRwI"
 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
-	getRange := "Sheet1!A2:A"
+	getRange := "Sheet2!A2:A"
 	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
 	if err != nil {
 		log.Printf("Error retrieving sheet data: %v", err)
@@ -250,7 +250,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 
 	if rowIndex == -1 {
 		log.Printf("Ticker %s not found in sheet. Appending new row.", ticker)
-		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet1!A:K", &sheets.ValueRange{
+		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet2!A2:K2", &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
 		}).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
 		if err != nil {
@@ -258,7 +258,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		}
 		return err
 	} else {
-		updateRange := fmt.Sprintf("Sheet1!A%d:K%d", rowIndex, rowIndex)
+		updateRange := fmt.Sprintf("Sheet2!A%d:K%d", rowIndex, rowIndex)
 		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, ticker, rowData)
 		_, err = client.Spreadsheets.Values.Update(spreadsheetID, updateRange, &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
