@@ -46,12 +46,14 @@ func initDB() *sql.DB {
 		sma_strategy TEXT DEFAULT 'hold',
 		occ TEXT DEFAULT 'hold',
 		adaptive_supertrend TEXT DEFAULT 'hold',
-		range_filter TEXT DEFAULT 'hold',
+		range_filter_daily TEXT DEFAULT 'hold',
+		range_filter_weekly TEXT DEFAULT 'hold',
 		pmax TEXT DEFAULT 'hold',
 		shinohara_intensity_ratio TEXT DEFAULT 'hold',
 		oscillators TEXT DEFAULT 'hold',
+		monthly_oscillator TEXT DEFAULT 'hold',
 		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-	);`
+	);`	
 	_, err = db.Exec(query)
 	if err != nil {
 		log.Fatal(err)
@@ -152,10 +154,12 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		"sma_strategy":              true,
 		"occ":                       true,
 		"adaptive_supertrend":       true,
-		"range_filter":              true,
+		"range_filter_daily":        true,
+		"range_filter_weekly":       true,
 		"pmax":                      true,
 		"shinohara_intensity_ratio": true,
 		"oscillators":               true,
+		"monthly_oscillator":        true,
 	}
 
 	if !allowedIndicators[alert.Indicator] {
