@@ -20,7 +20,7 @@ import (
 type TradingViewAlert struct {
 	Ticker    string `json:"ticker"`
 	Indicator string `json:"indicator"`
-	Signal    string `json:"signal"` // now a string ("buy" or "sell")
+	Signal    string `json:"signal"`
 	Comment   string `json:"comment"`
 }
 
@@ -43,15 +43,15 @@ func initDB() *sql.DB {
 	query := `
 	CREATE TABLE IF NOT EXISTS securities (
 		ticker TEXT PRIMARY KEY,
-		sma_strategy TEXT DEFAULT 'hold',
-		occ TEXT DEFAULT 'hold',
-		adaptive_supertrend TEXT DEFAULT 'hold',
-		range_filter_daily TEXT DEFAULT 'hold',
-		range_filter_weekly TEXT DEFAULT 'hold',
-		pmax TEXT DEFAULT 'hold',
-		shinohara_intensity_ratio TEXT DEFAULT 'hold',
-		oscillators TEXT DEFAULT 'hold',
-		monthly_oscillator TEXT DEFAULT 'hold',
+		sma_strategy TEXT DEFAULT '',
+		occ TEXT DEFAULT '',
+		adaptive_supertrend TEXT DEFAULT '',
+		range_filter_daily TEXT DEFAULT '',
+		range_filter_weekly TEXT DEFAULT '',
+		pmax TEXT DEFAULT '',
+		shinohara_intensity_ratio TEXT DEFAULT '',
+		oscillators_daily_weekly TEXT DEFAULT '',
+		monthly_oscillator TEXT DEFAULT '',
 		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`	
 	_, err = db.Exec(query)
@@ -82,18 +82,15 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				return
 			}
 
-			// Prepare a slice to hold our result rows.
 			var result []map[string]interface{}
 
-			// Iterate over rows.
 			for rows.Next() {
-				// Create a slice of interface{} values and pointers.
 				columns := make([]interface{}, len(cols))
 				columnPointers := make([]interface{}, len(cols))
 				for i := range columns {
 					columnPointers[i] = &columns[i]
 				}
-				// Scan the row into the pointers.
+				
 				if err := rows.Scan(columnPointers...); err != nil {
 					http.Error(w, "Error scanning row", http.StatusInternalServerError)
 					return
@@ -102,7 +99,6 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				m := make(map[string]interface{})
 				for i, colName := range cols {
 					val := columnPointers[i].(*interface{})
-					// Convert []byte to string if necessary.
 					switch v := (*val).(type) {
 					case []byte:
 						m[colName] = string(v)
@@ -158,7 +154,7 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		"range_filter_weekly":       true,
 		"pmax":                      true,
 		"shinohara_intensity_ratio": true,
-		"oscillators":               true,
+		"oscillators_daily_weekly":  true,
 		"monthly_oscillator":        true,
 	}
 
@@ -197,19 +193,18 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 
 // updateGoogleSheet retrieves indicator values for a ticker and updates the Google Sheet.
 func updateGoogleSheet(db *sql.DB, ticker string) error {
-	var sma, occ, adaptive, rangeFilter, pmax, shinohara, oscillators string
+	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated string)
 	query := `
-		SELECT sma_strategy, occ, adaptive_supertrend, range_filter, pmax, shinohara_intensity_ratio, oscillators
+		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated
 		FROM securities
 		WHERE ticker = ?`
 	row := db.QueryRow(query, ticker)
-	if err := row.Scan(&sma, &occ, &adaptive, &rangeFilter, &pmax, &shinohara, &oscillators); err != nil {
+	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &pmax, &shinohara_intensity_ratio, &oscillators_daily_weekly, &monthly_oscillator, &date_updated); err != nil {
 		log.Printf("Error scanning data for ticker %s: %v", ticker, err)
 		return err
 	}
 
-	// Build the row data in the desired order.
-	rowData := []interface{}{ticker, sma, occ, adaptive, rangeFilter, pmax, shinohara, oscillators}
+	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated}
 
 	ctx := context.Background()
 
@@ -237,7 +232,6 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	spreadsheetID := "1wU8AsCJDB1hH2rPat-bHmb86OSJQk22CuTb87n4pRwI"
 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
-	// Get existing tickers from column A (data starts at row 2).
 	getRange := "Sheet1!A2:A"
 	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
 	if err != nil {
@@ -248,7 +242,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	if resp.Values != nil {
 		for i, r := range resp.Values {
 			if len(r) > 0 && fmt.Sprintf("%v", r[0]) == ticker {
-				rowIndex = i + 2 // Add 2 for header offset.
+				rowIndex = i + 2
 				break
 			}
 		}
@@ -256,7 +250,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 
 	if rowIndex == -1 {
 		log.Printf("Ticker %s not found in sheet. Appending new row.", ticker)
-		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet1!A:H", &sheets.ValueRange{
+		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet1!A:K", &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
 		}).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
 		if err != nil {
@@ -264,7 +258,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		}
 		return err
 	} else {
-		updateRange := fmt.Sprintf("Sheet1!A%d:H%d", rowIndex, rowIndex)
+		updateRange := fmt.Sprintf("Sheet1!A%d:K%d", rowIndex, rowIndex)
 		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, ticker, rowData)
 		_, err = client.Spreadsheets.Values.Update(spreadsheetID, updateRange, &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
@@ -282,7 +276,7 @@ func main() {
 
 	http.HandleFunc("/webhook", handleWebhook(db))
 
-	port := "8080"
+	port := "8090"
 	log.Printf("Server started and listening on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
