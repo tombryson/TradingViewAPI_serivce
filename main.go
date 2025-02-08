@@ -229,7 +229,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		return err
 	}
 
-	spreadsheetID := "1wU8AsCJDB1hH2rPat-bHmb86OSJQk22CuTb87n4pRwI"
+	spreadsheetID := "1wiAQ8n3aLlKpCeWaN9x63s5MeLGsvBO52YP7sdBICps"
 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
 	getRange := "Sheet2!A2:A"
