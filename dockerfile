@@ -22,8 +22,11 @@ FROM alpine:latest
 # Install the SQLite runtime library.
 RUN apk add --no-cache sqlite-libs
 
+# Set the working directory to /app so that our binary and credentials file are together.
+WORKDIR /app
+
 # Copy the binary from the builder stage.
-COPY --from=builder /app/tradingview_apiservice /tradingview_apiservice
+COPY --from=builder /app/tradingview_apiservice /app/tradingview_apiservice
 
 # Copy the entrypoint script into the image.
 COPY entrypoint.sh /entrypoint.sh
@@ -32,9 +35,9 @@ RUN chmod +x /entrypoint.sh
 # Expose port 8090 (adjust if needed).
 EXPOSE 8090
 
-# We rely on the environment variable "GOOGLE_CREDS_BASE64" 
-# (set via `fly secrets set` or elsewhere).
+# The environment variable GOOGLE_CREDS_BASE64 is set empty here by default.
+# On Fly, set it via `fly secrets set GOOGLE_CREDS_BASE64="base64-encoded-contents"`.
 ENV GOOGLE_CREDS_BASE64=""
 
-# Run the entrypoint, which writes credentials.json (if available) and runs the app.
+# Run the entrypoint script.
 ENTRYPOINT ["/entrypoint.sh"]

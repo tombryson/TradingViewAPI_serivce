@@ -34,7 +34,7 @@ func readCreds() ([]byte, error) {
 
 // initDB initializes the SQLite database with a table for our securities.
 func initDB() *sql.DB {
-	db, err := sql.Open("sqlite3", "./stockmomentum.db")
+	db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
 	if err != nil {
 		log.Fatal(err)
 	}
