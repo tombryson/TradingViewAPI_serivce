@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for tradingview-apiservice on 2025-02-08T13:38:22+11:00
+# fly.toml app configuration file generated for tradingview-apiservice on 2025-02-09T00:39:15+11:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -7,6 +7,10 @@ app = 'tradingview-apiservice'
 primary_region = 'syd'
 
 [build]
+
+[[mounts]]
+  source = 'stockmomentum_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8090
@@ -20,7 +24,3 @@ primary_region = 'syd'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-
-[[mounts]]
-  source = "stockmomentum-data"
-  destination = "/data"
