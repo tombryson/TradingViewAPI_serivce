@@ -50,7 +50,8 @@ func initDB() *sql.DB {
 		range_filter_weekly TEXT DEFAULT '',
 		pmax TEXT DEFAULT '',
 		shinohara_intensity_ratio TEXT DEFAULT '',
-		oscillators_daily_weekly TEXT DEFAULT '',
+		oscillator_daily TEXT DEFAULT '',
+		oscillator_weekly TEXT DEFAULT '',
 		monthly_oscillator TEXT DEFAULT '',
 		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`	
@@ -154,7 +155,8 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		"range_filter_weekly":       true,
 		"pmax":                      true,
 		"shinohara_intensity_ratio": true,
-		"oscillators_daily_weekly":  true,
+		"oscillator_daily":          true,
+		"oscillator_weekly":         true,
 		"monthly_oscillator":        true,
 	}
 
@@ -193,18 +195,18 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 
 // updateGoogleSheet retrieves indicator values for a ticker and updates the Google Sheet.
 func updateGoogleSheet(db *sql.DB, ticker string) error {
-	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated string)
+	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated string)
 	query := `
-		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated
+		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated
 		FROM securities
 		WHERE ticker = ?`
 	row := db.QueryRow(query, ticker)
-	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &pmax, &shinohara_intensity_ratio, &oscillators_daily_weekly, &monthly_oscillator, &date_updated); err != nil {
+	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &pmax, &shinohara_intensity_ratio, &oscillator_daily, &oscillator_weekly, &monthly_oscillator, &date_updated); err != nil {
 		log.Printf("Error scanning data for ticker %s: %v", ticker, err)
 		return err
 	}
 
-	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillators_daily_weekly, monthly_oscillator, date_updated}
+	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated}
 
 	ctx := context.Background()
 
