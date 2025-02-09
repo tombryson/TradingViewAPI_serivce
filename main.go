@@ -193,7 +193,23 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 	return nil
 }
 
-// updateGoogleSheet retrieves indicator values for a ticker and updates the Google Sheet.
+func handleDelete(db *sql.DB) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ticker := r.URL.Query().Get("ticker")
+        if ticker == "" {
+            http.Error(w, "Missing ticker query parameter", http.StatusBadRequest)
+            return
+        }
+        err := deleteTicker(db, ticker)
+        if err != nil {
+            http.Error(w, fmt.Sprintf("Error deleting ticker %s: %v", ticker, err), http.StatusInternalServerError)
+            return
+        }
+        fmt.Fprintf(w, "Ticker %s deleted successfully", ticker)
+    }
+}
+
+
 func updateGoogleSheet(db *sql.DB, ticker string) error {
 	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, pmax, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated string)
 	query := `
@@ -277,6 +293,7 @@ func main() {
 	defer db.Close()
 
 	http.HandleFunc("/webhook", handleWebhook(db))
+	http.HandleFunc("/delete", handleDelete(db))
 
 	port := "8090"
 	log.Printf("Server started and listening on :%s", port)
