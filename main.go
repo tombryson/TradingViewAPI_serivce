@@ -49,9 +49,8 @@ func initDB() *sql.DB {
 		range_filter_daily TEXT DEFAULT '',
 		range_filter_weekly TEXT DEFAULT '',
 		shinohara_intensity_ratio TEXT DEFAULT '',
-		oscillator_daily TEXT DEFAULT '',
+		oscillator_daily TEXT DEFAULT '',	
 		oscillator_weekly TEXT DEFAULT '',
-		monthly_oscillator TEXT DEFAULT '',
 		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`	
 	_, err = db.Exec(query)
@@ -155,7 +154,6 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		"shinohara_intensity_ratio": true,
 		"oscillator_daily":          true,
 		"oscillator_weekly":         true,
-		"monthly_oscillator":        true,
 	}
 
 	if !allowedIndicators[alert.Indicator] {
@@ -164,7 +162,6 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		return fmt.Errorf(errMsg)
 	}
 
-	// Build an UPSERT query that sets the appropriate indicator column.
 	query := fmt.Sprintf(`
 	INSERT INTO securities (ticker, %s, date_updated)
 	VALUES (?, ?, ?)
@@ -181,7 +178,7 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 		log.Printf("db.Exec error: %v", err)
 		return err
 	}
-	// Optional: you can log the number of affected rows.
+	
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		log.Printf("Error getting affected rows: %v", err)
@@ -190,6 +187,19 @@ func updateIndicator(db *sql.DB, alert TradingViewAlert) error {
 	}
 	return nil
 }
+
+func deleteTicker(db *sql.DB, ticker string) error {
+	query := `
+	DELETE FROM securities
+	WHERE ticker = ?`
+	_, err := db.Exec(query, ticker)
+	if err != nil {
+		log.Printf("db.Exec error: %v", ticker, err)
+		return err
+	}
+	return nil
+}
+
 
 func handleDelete(db *sql.DB) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -209,18 +219,18 @@ func handleDelete(db *sql.DB) http.HandlerFunc {
 
 
 func updateGoogleSheet(db *sql.DB, ticker string) error {
-	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated string)
+	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated string)
 	query := `
-		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated
+		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated
 		FROM securities
 		WHERE ticker = ?`
 	row := db.QueryRow(query, ticker)
-	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &shinohara_intensity_ratio, &oscillator_daily, &oscillator_weekly, &monthly_oscillator, &date_updated); err != nil {
+	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &shinohara_intensity_ratio, &oscillator_daily, &oscillator_weekly, &date_updated); err != nil {
 		log.Printf("Error scanning data for ticker %s: %v", ticker, err)
 		return err
 	}
 
-	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, monthly_oscillator, date_updated}
+	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated}
 
 	ctx := context.Background()
 
