@@ -220,7 +220,14 @@ func handleDelete(db *sql.DB) http.HandlerFunc {
 
 
 func updateGoogleSheet(db *sql.DB, ticker string) error {
-	var (sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated string)
+	// Normalize ticker value
+	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
+
+	var (
+		sma_strategy, occ, adaptive_supertrend, range_filter_daily,
+		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily,
+		oscillator_weekly, date_updated string
+	)
 	query := `
 		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated
 		FROM securities
@@ -231,7 +238,10 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		return err
 	}
 
-	rowData := []interface{}{ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated}
+	rowData := []interface{}{
+		ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily,
+		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated,
+	}
 
 	ctx := context.Background()
 
@@ -259,6 +269,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	spreadsheetID := "1wiAQ8n3aLlKpCeWaN9x63s5MeLGsvBO52YP7sdBICps"
 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
+	// Expand the range to cover more rows
 	getRange := "Sheet2!A2:A1000"
 	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
 	if err != nil {
@@ -266,13 +277,12 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		return err
 	}
 	rowIndex := -1
-	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
 	if resp.Values != nil {
 		for i, r := range resp.Values {
 			if len(r) > 0 {
 				sheetTicker := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", r[0])))
 				if sheetTicker == normalizedTicker {
-					rowIndex = i + 2
+					rowIndex = i + 2 // because our range starts at row 2
 					break
 				}
 			}
@@ -280,7 +290,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	}
 
 	if rowIndex == -1 {
-		log.Printf("Ticker %s not found in sheet. Appending new row.", ticker)
+		log.Printf("Ticker %s not found in sheet. Appending new row.", normalizedTicker)
 		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet2!A2:L2", &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
 		}).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
@@ -290,7 +300,7 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 		return err
 	} else {
 		updateRange := fmt.Sprintf("Sheet2!A%d:L%d", rowIndex, rowIndex)
-		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, ticker, rowData)
+		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, normalizedTicker, rowData)
 		_, err = client.Spreadsheets.Values.Update(spreadsheetID, updateRange, &sheets.ValueRange{
 			Values: [][]interface{}{rowData},
 		}).ValueInputOption("USER_ENTERED").Do()
