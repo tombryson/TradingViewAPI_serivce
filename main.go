@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -258,18 +259,22 @@ func updateGoogleSheet(db *sql.DB, ticker string) error {
 	spreadsheetID := "1wiAQ8n3aLlKpCeWaN9x63s5MeLGsvBO52YP7sdBICps"
 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
-	getRange := "Sheet2!A2:A"
+	getRange := "Sheet2!A2:A1000"
 	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
 	if err != nil {
 		log.Printf("Error retrieving sheet data: %v", err)
 		return err
 	}
 	rowIndex := -1
+	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
 	if resp.Values != nil {
 		for i, r := range resp.Values {
-			if len(r) > 0 && fmt.Sprintf("%v", r[0]) == ticker {
-				rowIndex = i + 2
-				break
+			if len(r) > 0 {
+				sheetTicker := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", r[0])))
+				if sheetTicker == normalizedTicker {
+					rowIndex = i + 2
+					break
+				}
 			}
 		}
 	}
