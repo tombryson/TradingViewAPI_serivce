@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -218,10 +219,29 @@ func handleDelete(db *sql.DB) http.HandlerFunc {
     }
 }
 
+var (
+    tickerLocks   = make(map[string]*sync.Mutex)
+    tickerLocksMu sync.Mutex
+)
+
+func getTickerLock(ticker string) *sync.Mutex {
+    tickerLocksMu.Lock()
+    defer tickerLocksMu.Unlock()
+    lock, exists := tickerLocks[ticker]
+    if !exists {
+        lock = &sync.Mutex{}
+        tickerLocks[ticker] = lock
+    }
+    return lock
+}
+
 
 func updateGoogleSheet(db *sql.DB, ticker string) error {
-	// Normalize ticker value
 	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
+
+	lock := getTickerLock(normalizedTicker)
+	lock.Lock()
+	defer lock.Unlock()
 
 	var (
 		sma_strategy, occ, adaptive_supertrend, range_filter_daily,
