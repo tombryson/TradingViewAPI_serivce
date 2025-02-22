@@ -1,21 +1,16 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
-	"google.golang.org/api/sheets/v4"
 )
 
 // TradingViewAlert holds the incoming webhook payload.
@@ -130,13 +125,6 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				return
 			}
 
-			// Update Google Sheet
-			if err := updateGoogleSheetFn(db, alert.Ticker); err != nil {
-				log.Printf("Failed to update Google Sheet for ticker %s: %v", alert.Ticker, err)
-				http.Error(w, fmt.Sprintf("Failed to update Google Sheet: %v", err), http.StatusInternalServerError)
-				return
-			}
-
 			log.Println("Webhook processed successfully")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprint(w, "Webhook processed successfully")
@@ -236,100 +224,100 @@ func getTickerLock(ticker string) *sync.Mutex {
 }
 
 
-func updateGoogleSheet(db *sql.DB, ticker string) error {
-	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
+// func updateGoogleSheet(db *sql.DB, ticker string) error {
+// 	normalizedTicker := strings.TrimSpace(strings.ToUpper(ticker))
 
-	lock := getTickerLock(normalizedTicker)
-	lock.Lock()
-	defer lock.Unlock()
+// 	lock := getTickerLock(normalizedTicker)
+// 	lock.Lock()
+// 	defer lock.Unlock()
 
-	var (
-		sma_strategy, occ, adaptive_supertrend, range_filter_daily,
-		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily,
-		oscillator_weekly, date_updated string
-	)
-	query := `
-		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated
-		FROM securities
-		WHERE ticker = ?`
-	row := db.QueryRow(query, ticker)
-	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &shinohara_intensity_ratio, &oscillator_daily, &oscillator_weekly, &date_updated); err != nil {
-		log.Printf("Error scanning data for ticker %s: %v", ticker, err)
-		return err
-	}
+// 	var (
+// 		sma_strategy, occ, adaptive_supertrend, range_filter_daily,
+// 		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily,
+// 		oscillator_weekly, date_updated string
+// 	)
+// 	query := `
+// 		SELECT ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily, range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated
+// 		FROM securities
+// 		WHERE ticker = ?`
+// 	row := db.QueryRow(query, ticker)
+// 	if err := row.Scan(&ticker, &sma_strategy, &occ, &adaptive_supertrend, &range_filter_daily, &range_filter_weekly, &shinohara_intensity_ratio, &oscillator_daily, &oscillator_weekly, &date_updated); err != nil {
+// 		log.Printf("Error scanning data for ticker %s: %v", ticker, err)
+// 		return err
+// 	}
 
-	rowData := []interface{}{
-		ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily,
-		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated,
-	}
+// 	rowData := []interface{}{
+// 		ticker, sma_strategy, occ, adaptive_supertrend, range_filter_daily,
+// 		range_filter_weekly, shinohara_intensity_ratio, oscillator_daily, oscillator_weekly, date_updated,
+// 	}
 
-	ctx := context.Background()
+// 	ctx := context.Background()
 
-	log.Println("Reading credentials from file...")
-	credBytes, err := readCreds()
-	if err != nil {
-		log.Printf("Error reading credentials: %v", err)
-		return err
-	}
+// 	log.Println("Reading credentials from file...")
+// 	credBytes, err := readCreds()
+// 	if err != nil {
+// 		log.Printf("Error reading credentials: %v", err)
+// 		return err
+// 	}
 
-	log.Println("Parsing credentials JSON...")
-	creds, err := google.CredentialsFromJSON(ctx, credBytes, sheets.SpreadsheetsScope)
-	if err != nil {
-		log.Printf("Error parsing credentials JSON: %v", err)
-		return err
-	}
+// 	log.Println("Parsing credentials JSON...")
+// 	creds, err := google.CredentialsFromJSON(ctx, credBytes, sheets.SpreadsheetsScope)
+// 	if err != nil {
+// 		log.Printf("Error parsing credentials JSON: %v", err)
+// 		return err
+// 	}
 
-	log.Println("Creating Google Sheets client...")
-	client, err := sheets.NewService(ctx, option.WithCredentials(creds))
-	if err != nil {
-		log.Printf("Error creating Sheets service: %v", err)
-		return err
-	}
+// 	log.Println("Creating Google Sheets client...")
+// 	client, err := sheets.NewService(ctx, option.WithCredentials(creds))
+// 	if err != nil {
+// 		log.Printf("Error creating Sheets service: %v", err)
+// 		return err
+// 	}
 
-	spreadsheetID := "1wiAQ8n3aLlKpCeWaN9x63s5MeLGsvBO52YP7sdBICps"
-	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
+// 	spreadsheetID := "1wiAQ8n3aLlKpCeWaN9x63s5MeLGsvBO52YP7sdBICps"
+// 	log.Printf("Using spreadsheet ID: %s", spreadsheetID)
 
-	// Expand the range to cover more rows
-	getRange := "Sheet2!A2:A1000"
-	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
-	if err != nil {
-		log.Printf("Error retrieving sheet data: %v", err)
-		return err
-	}
-	rowIndex := -1
-	if resp.Values != nil {
-		for i, r := range resp.Values {
-			if len(r) > 0 {
-				sheetTicker := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", r[0])))
-				if sheetTicker == normalizedTicker {
-					rowIndex = i + 2 // because our range starts at row 2
-					break
-				}
-			}
-		}
-	}
+// 	// Expand the range to cover more rows
+// 	getRange := "Sheet2!A2:A1000"
+// 	resp, err := client.Spreadsheets.Values.Get(spreadsheetID, getRange).Do()
+// 	if err != nil {
+// 		log.Printf("Error retrieving sheet data: %v", err)
+// 		return err
+// 	}
+// 	rowIndex := -1
+// 	if resp.Values != nil {
+// 		for i, r := range resp.Values {
+// 			if len(r) > 0 {
+// 				sheetTicker := strings.TrimSpace(strings.ToUpper(fmt.Sprintf("%v", r[0])))
+// 				if sheetTicker == normalizedTicker {
+// 					rowIndex = i + 2 // because our range starts at row 2
+// 					break
+// 				}
+// 			}
+// 		}
+// 	}
 
-	if rowIndex == -1 {
-		log.Printf("Ticker %s not found in sheet. Appending new row.", normalizedTicker)
-		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet2!A2:L2", &sheets.ValueRange{
-			Values: [][]interface{}{rowData},
-		}).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
-		if err != nil {
-			log.Printf("Error appending new row: %v", err)
-		}
-		return err
-	} else {
-		updateRange := fmt.Sprintf("Sheet2!A%d:L%d", rowIndex, rowIndex)
-		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, normalizedTicker, rowData)
-		_, err = client.Spreadsheets.Values.Update(spreadsheetID, updateRange, &sheets.ValueRange{
-			Values: [][]interface{}{rowData},
-		}).ValueInputOption("USER_ENTERED").Do()
-		if err != nil {
-			log.Printf("Error updating row %d: %v", rowIndex, err)
-		}
-		return err
-	}
-}
+// 	if rowIndex == -1 {
+// 		log.Printf("Ticker %s not found in sheet. Appending new row.", normalizedTicker)
+// 		_, err = client.Spreadsheets.Values.Append(spreadsheetID, "Sheet2!A2:L2", &sheets.ValueRange{
+// 			Values: [][]interface{}{rowData},
+// 		}).ValueInputOption("USER_ENTERED").InsertDataOption("INSERT_ROWS").Do()
+// 		if err != nil {
+// 			log.Printf("Error appending new row: %v", err)
+// 		}
+// 		return err
+// 	} else {
+// 		updateRange := fmt.Sprintf("Sheet2!A%d:L%d", rowIndex, rowIndex)
+// 		log.Printf("Updating row %d for ticker %s with data: %v", rowIndex, normalizedTicker, rowData)
+// 		_, err = client.Spreadsheets.Values.Update(spreadsheetID, updateRange, &sheets.ValueRange{
+// 			Values: [][]interface{}{rowData},
+// 		}).ValueInputOption("USER_ENTERED").Do()
+// 		if err != nil {
+// 			log.Printf("Error updating row %d: %v", rowIndex, err)
+// 		}
+// 		return err
+// 	}
+// }
 
 func main() {
 	db := initDB()
