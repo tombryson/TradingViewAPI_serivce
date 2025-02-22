@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -207,21 +206,21 @@ func handleDelete(db *sql.DB) http.HandlerFunc {
     }
 }
 
-var (
-    tickerLocks   = make(map[string]*sync.Mutex)
-    tickerLocksMu sync.Mutex
-)
+// var (
+//     tickerLocks   = make(map[string]*sync.Mutex)
+//     tickerLocksMu sync.Mutex
+// )
 
-func getTickerLock(ticker string) *sync.Mutex {
-    tickerLocksMu.Lock()
-    defer tickerLocksMu.Unlock()
-    lock, exists := tickerLocks[ticker]
-    if !exists {
-        lock = &sync.Mutex{}
-        tickerLocks[ticker] = lock
-    }
-    return lock
-}
+// func getTickerLock(ticker string) *sync.Mutex {
+//     tickerLocksMu.Lock()
+//     defer tickerLocksMu.Unlock()
+//     lock, exists := tickerLocks[ticker]
+//     if !exists {
+//         lock = &sync.Mutex{}
+//         tickerLocks[ticker] = lock
+//     }
+//     return lock
+// }
 
 
 // func updateGoogleSheet(db *sql.DB, ticker string) error {
