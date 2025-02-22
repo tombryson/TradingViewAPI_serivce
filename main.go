@@ -22,7 +22,7 @@ type TradingViewAlert struct {
 }
 
 // Package-level variable so that the Sheets update function can be overridden in tests.
-var updateGoogleSheetFn = updateGoogleSheet
+// var updateGoogleSheetFn = updateGoogleSheet
 
 // readCreds reads the credentials from a file.
 func readCreds() ([]byte, error) {
