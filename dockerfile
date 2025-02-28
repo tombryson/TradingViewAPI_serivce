@@ -2,8 +2,7 @@
 FROM golang:1.23-alpine AS builder
 
 # Install build dependencies for cgo and sqlite.
-RUN apk add --no-cache git gcc musl-dev sqlite-dev
-RUN apk add --no-cache sqlite
+RUN apk add --no-cache git gcc musl-dev sqlite-dev sqlite
 
 WORKDIR /app
 
@@ -21,7 +20,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -o tradingview_apiservice .
 FROM alpine:latest
 
 # Install the SQLite runtime library.
-RUN apk add --no-cache sqlite-libs
+RUN apk add --no-cache sqlite
 
 # Set the working directory to /app so that our binary and credentials file are together.
 WORKDIR /app
