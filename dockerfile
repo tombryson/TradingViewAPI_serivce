@@ -3,6 +3,7 @@ FROM golang:1.23-alpine AS builder
 
 # Install build dependencies for cgo and sqlite.
 RUN apk add --no-cache git gcc musl-dev sqlite-dev
+RUN apk add --no-cache sqlite
 
 WORKDIR /app
 
