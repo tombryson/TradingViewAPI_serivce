@@ -18,31 +18,25 @@ type TradingViewAlert struct {
 }
 
 func initDB() *sql.DB {
-	db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
-	if err != nil {
-		log.Fatal(err)
-	}
+    db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	// Drop the existing table to ensure a clean schema
-	_, err = db.Exec(`DROP TABLE IF EXISTS securities`)
-	if err != nil {
-		log.Fatal(err)
-	}
+    // Create table if it doesn't exist (no DROP)
+    query := `
+    CREATE TABLE IF NOT EXISTS securities (
+        ticker TEXT PRIMARY KEY,
+        signal TEXT,
+        analyst_price_target REAL,
+        date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`
+    _, err = db.Exec(query)
+    if err != nil {
+        log.Fatal(err)
+    }
 
-	// Create new securities table
-	query := `
-	CREATE TABLE securities (
-		ticker TEXT PRIMARY KEY,
-		signal TEXT,
-		analyst_price_target REAL,
-		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-	);`
-	_, err = db.Exec(query)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return db
+    return db
 }
 
 // handleWebhook handles GET and POST methods
