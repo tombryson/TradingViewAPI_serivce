@@ -12,31 +12,31 @@ import (
 
 // TradingViewAlert represents the JSON structure from TradingView alerts
 type TradingViewAlert struct {
-	Ticker             string  `json:"ticker"`
-	Signal             string  `json:"signal"`
-	AnalystPriceTarget float64 `json:"analystPriceTarget"`
+	Ticker             string   `json:"ticker"`
+	Signal             string   `json:"signal"`
+	AnalystPriceTarget *float64 `json:"analystPriceTarget"` // Correct: Allows null/missing values
 }
 
 func initDB() *sql.DB {
-    db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
-    if err != nil {
-        log.Fatal(err)
-    }
+	db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // Create table if it doesn't exist (no DROP)
-    query := `
-    CREATE TABLE IF NOT EXISTS securities (
-        ticker TEXT PRIMARY KEY,
-        signal TEXT,
-        analyst_price_target REAL,
-        date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-    );`
-    _, err = db.Exec(query)
-    if err != nil {
-        log.Fatal(err)
-    }
+	// Create table if it doesn't exist (no DROP)
+	query := `
+	CREATE TABLE IF NOT EXISTS securities (
+		ticker TEXT PRIMARY KEY,
+		signal TEXT,
+		analyst_price_target REAL,
+		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+	);`
+	_, err = db.Exec(query)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    return db
+	return db
 }
 
 // handleWebhook handles GET and POST methods
@@ -54,16 +54,22 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 			var result []map[string]interface{}
 			for rows.Next() {
 				var ticker, signal string
-				var priceTarget float64
+				var priceTarget sql.NullFloat64
 				var dateUpdated string
 				if err := rows.Scan(&ticker, &signal, &priceTarget, &dateUpdated); err != nil {
 					http.Error(w, "Error scanning row", http.StatusInternalServerError)
 					return
 				}
+				var priceTargetVal interface{}
+				if priceTarget.Valid {
+					priceTargetVal = priceTarget.Float64
+				} else {
+					priceTargetVal = nil
+				}
 				m := map[string]interface{}{
 					"ticker":               ticker,
 					"signal":               signal,
-					"analyst_price_target": priceTarget,
+					"analyst_price_target": priceTargetVal,
 					"date_updated":         dateUpdated,
 				}
 				result = append(result, m)
@@ -84,6 +90,13 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 			}
 			log.Printf("Received alert: %+v", alert)
 
+			// Handle nil AnalystPriceTarget
+			var priceTarget sql.NullFloat64
+			if alert.AnalystPriceTarget != nil {
+				priceTarget.Float64 = *alert.AnalystPriceTarget
+				priceTarget.Valid = true
+			}
+
 			query := `
 			INSERT INTO securities (ticker, signal, analyst_price_target, date_updated)
 			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -91,7 +104,8 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				signal = excluded.signal,
 				analyst_price_target = excluded.analyst_price_target,
 				date_updated = CURRENT_TIMESTAMP;`
-			_, err := db.Exec(query, alert.Ticker, alert.Signal, alert.AnalystPriceTarget)
+			// Fix: Use priceTarget instead of alert.AnalystPriceTarget
+			_, err := db.Exec(query, alert.Ticker, alert.Signal, priceTarget)
 			if err != nil {
 				log.Printf("Failed to update database for alert %+v: %v", alert, err)
 				http.Error(w, fmt.Sprintf("Failed to update database: %v", err), http.StatusInternalServerError)
