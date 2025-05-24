@@ -10,11 +10,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// NullableFloat64 is a custom type to handle flexible JSON parsing for float64
+type NullableFloat64 struct {
+	*float64
+}
+
+func (nf *NullableFloat64) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" || string(data) == `""` {
+		nf.float64 = nil
+		return nil
+	}
+	var val float64
+	if err := json.Unmarshal(data, &val); err != nil {
+		log.Printf("Invalid analystPriceTarget value %s, treating as null: %v", string(data), err)
+		nf.float64 = nil
+		return nil
+	}
+	nf.float64 = &val
+	return nil
+}
+
 // TradingViewAlert represents the JSON structure from TradingView alerts
 type TradingViewAlert struct {
-	Ticker             string   `json:"ticker"`
-	Signal             string   `json:"signal"`
-	AnalystPriceTarget *float64 `json:"analystPriceTarget"` // Correct: Allows null/missing values
+	Ticker             string         `json:"ticker"`
+	Signal             string         `json:"signal"`
+	AnalystPriceTarget NullableFloat64 `json:"analystPriceTarget"`
 }
 
 func initDB() *sql.DB {
@@ -23,7 +43,6 @@ func initDB() *sql.DB {
 		log.Fatal(err)
 	}
 
-	// Create table if it doesn't exist (no DROP)
 	query := `
 	CREATE TABLE IF NOT EXISTS securities (
 		ticker TEXT PRIMARY KEY,
@@ -90,10 +109,16 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 			}
 			log.Printf("Received alert: %+v", alert)
 
-			// Handle nil AnalystPriceTarget
+			// Validate required fields
+			if alert.Ticker == "" || alert.Signal == "" {
+				http.Error(w, "Missing ticker or signal", http.StatusBadRequest)
+				return
+			}
+
+			// Convert NullableFloat64 to sql.NullFloat64
 			var priceTarget sql.NullFloat64
-			if alert.AnalystPriceTarget != nil {
-				priceTarget.Float64 = *alert.AnalystPriceTarget
+			if alert.AnalystPriceTarget.float64 != nil {
+				priceTarget.Float64 = *alert.AnalystPriceTarget.float64
 				priceTarget.Valid = true
 			}
 
@@ -104,7 +129,6 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				signal = excluded.signal,
 				analyst_price_target = excluded.analyst_price_target,
 				date_updated = CURRENT_TIMESTAMP;`
-			// Fix: Use priceTarget instead of alert.AnalystPriceTarget
 			_, err := db.Exec(query, alert.Ticker, alert.Signal, priceTarget)
 			if err != nil {
 				log.Printf("Failed to update database for alert %+v: %v", alert, err)
