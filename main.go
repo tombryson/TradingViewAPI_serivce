@@ -34,7 +34,7 @@ func (nf *NullableFloat64) UnmarshalJSON(data []byte) error {
 // TradingViewAlert represents the JSON structure from TradingView alerts
 type TradingViewAlert struct {
 	Ticker             string         `json:"ticker"`
-	Signal             string         `json:"signal"`
+	Signal             string         `json:"signal,omitempty"`
 	SignalStrength     int            `json:"signalStrength"`
 	VWMAPosition       string         `json:"vwmaPosition"`
 	AnalystPriceTarget NullableFloat64 `json:"analystPriceTarget"`
@@ -137,39 +137,9 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 			log.Printf("Received alert: %+v", alert)
 
 			// Validate required fields
-			if alert.Ticker == "" || alert.Signal == "" {
-				http.Error(w, "Missing ticker or signal", http.StatusBadRequest)
+			if alert.Ticker == "" {
+				http.Error(w, "Missing ticker", http.StatusBadRequest)
 				return
-			}
-
-			// Get current signal from database
-			var currentSignal string
-			err := db.QueryRow("SELECT signal FROM securities WHERE ticker = ?", alert.Ticker).Scan(&currentSignal)
-			if err != nil && err != sql.ErrNoRows {
-				log.Printf("Error querying current signal for ticker %s: %v", alert.Ticker, err)
-				http.Error(w, "Error querying database", http.StatusInternalServerError)
-				return
-			}
-
-			// Determine if signal has changed
-			now := time.Now().UTC()
-			var signalDate interface{}
-			if currentSignal != alert.Signal {
-				signalDate = now
-			} else {
-				// Retrieve existing signal_date if signal hasn't changed
-				var existingSignalDate sql.NullTime
-				err := db.QueryRow("SELECT signal_date FROM securities WHERE ticker = ?", alert.Ticker).Scan(&existingSignalDate)
-				if err != nil && err != sql.ErrNoRows {
-					log.Printf("Error querying signal_date for ticker %s: %v", alert.Ticker, err)
-					http.Error(w, "Error querying database", http.StatusInternalServerError)
-					return
-				}
-				if existingSignalDate.Valid {
-					signalDate = existingSignalDate.Time
-				} else {
-					signalDate = nil
-				}
 			}
 
 			// Convert NullableFloat64 to sql.NullFloat64
@@ -179,22 +149,70 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				priceTarget.Valid = true
 			}
 
-			// Update database
-			query := `
-			INSERT INTO securities (ticker, signal, signal_strength, vwma_position, analyst_price_target, date_updated, signal_date)
-			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-			ON CONFLICT(ticker) DO UPDATE SET
-				signal = excluded.signal,
-				signal_strength = excluded.signal_strength,
-				vwma_position = excluded.vwma_position,
-				analyst_price_target = excluded.analyst_price_target,
-				date_updated = CURRENT_TIMESTAMP,
-				signal_date = excluded.signal_date;`
-			_, err = db.Exec(query, alert.Ticker, alert.Signal, alert.SignalStrength, alert.VWMAPosition, priceTarget, signalDate)
-			if err != nil {
-				log.Printf("Failed to update database for alert %+v: %v", alert, err)
-				http.Error(w, fmt.Sprintf("Failed to update database: %v", err), http.StatusInternalServerError)
-				return
+			if alert.Signal == "" {
+				// Handle VWMA-only update
+				query := `
+				INSERT INTO securities (ticker, signal_strength, vwma_position, analyst_price_target, date_updated)
+				VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+				ON CONFLICT(ticker) DO UPDATE SET
+					signal_strength = excluded.signal_strength,
+					vwma_position = excluded.vwma_position,
+					analyst_price_target = excluded.analyst_price_target,
+					date_updated = CURRENT_TIMESTAMP;`
+				_, err := db.Exec(query, alert.Ticker, alert.SignalStrength, alert.VWMAPosition, priceTarget)
+				if err != nil {
+					log.Printf("Failed to update database for VWMA alert %+v: %v", alert, err)
+					http.Error(w, fmt.Sprintf("Failed to update database: %v", err), http.StatusInternalServerError)
+					return
+				}
+			} else {
+				// Handle buy/sell signals
+				if alert.Signal != "buy" && alert.Signal != "sell" {
+					http.Error(w, "Invalid signal (must be 'buy' or 'sell')", http.StatusBadRequest)
+					return
+				}
+
+				// Get current signal and signal_date from database
+				var currentSignal sql.NullString
+				var existingSignalDate sql.NullTime
+				err := db.QueryRow("SELECT signal, signal_date FROM securities WHERE ticker = ?", alert.Ticker).Scan(&currentSignal, &existingSignalDate)
+				if err != nil && err != sql.ErrNoRows {
+					log.Printf("Error querying current signal and signal_date for ticker %s: %v", alert.Ticker, err)
+					http.Error(w, "Error querying database", http.StatusInternalServerError)
+					return
+				}
+
+				// Determine signal_date based on signal change
+				var signalDate interface{}
+				if !currentSignal.Valid || currentSignal.String != alert.Signal {
+					// Signal is new or has changed, set signal_date to now
+					signalDate = time.Now().UTC()
+				} else {
+					// Signal is the same, preserve existing signal_date or set to NULL if none exists
+					if existingSignalDate.Valid {
+						signalDate = existingSignalDate.Time
+					} else {
+						signalDate = nil
+					}
+				}
+
+				// Update database for buy/sell signals
+				query := `
+				INSERT INTO securities (ticker, signal, signal_strength, vwma_position, analyst_price_target, date_updated, signal_date)
+				VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+				ON CONFLICT(ticker) DO UPDATE SET
+					signal = excluded.signal,
+					signal_strength = excluded.signal_strength,
+					vwma_position = excluded.vwma_position,
+					analyst_price_target = excluded.analyst_price_target,
+					date_updated = CURRENT_TIMESTAMP,
+					signal_date = excluded.signal_date;`
+				_, err = db.Exec(query, alert.Ticker, alert.Signal, alert.SignalStrength, alert.VWMAPosition, priceTarget, signalDate)
+				if err != nil {
+					log.Printf("Failed to update database for alert %+v: %v", alert, err)
+					http.Error(w, fmt.Sprintf("Failed to update database: %v", err), http.StatusInternalServerError)
+					return
+				}
 			}
 
 			log.Println("Webhook processed successfully")
