@@ -35,6 +35,7 @@ func (nf *NullableFloat64) UnmarshalJSON(data []byte) error {
 type TradingViewAlert struct {
 	Ticker             string         `json:"ticker"`
 	Signal             string         `json:"signal,omitempty"`
+	Event              string         `json:"event,omitempty"`
 	SignalStrength     int            `json:"signalStrength"`
 	VWMAPosition       string         `json:"vwmaPosition"`
 	AnalystPriceTarget NullableFloat64 `json:"analystPriceTarget"`
@@ -43,35 +44,64 @@ type TradingViewAlert struct {
 func initDB() *sql.DB {
 	db, err := sql.Open("sqlite3", "/data/stockmomentum.db")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to open database: %v", err)
 	}
 
-	// Create the securities table if it doesn't exist
+	// Create the full securities table with all columns
 	query := `
 	CREATE TABLE IF NOT EXISTS securities (
 		ticker TEXT PRIMARY KEY,
 		signal TEXT,
+		signal_strength INTEGER DEFAULT 0,
+		vwma_position TEXT DEFAULT '',
 		analyst_price_target REAL,
-		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+		date_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+		signal_date DATETIME
 	);`
 	_, err = db.Exec(query)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error creating securities table: %v", err)
 	}
 
-	// Add new columns if they don't exist
-	alterQueries := []string{
-		`ALTER TABLE securities ADD COLUMN signal_strength INTEGER DEFAULT 0;`,
-		`ALTER TABLE securities ADD COLUMN vwma_position TEXT DEFAULT '';`,
-		`ALTER TABLE securities ADD COLUMN signal_date DATETIME;`,
+	// Verify table structure
+	rows, err := db.Query("PRAGMA table_info(securities);")
+	if err != nil {
+		log.Fatalf("Error querying table info: %v", err)
 	}
-	for _, alterQuery := range alterQueries {
-		_, err := db.Exec(alterQuery)
-		if err != nil {
-			// SQLite doesn't error if column already exists, but log other errors
-			if err.Error() != "duplicate column name" {
-				log.Printf("Warning: Failed to execute alter query: %v", err)
-			}
+	defer rows.Close()
+
+	expectedColumns := []string{
+		"ticker",
+		"signal",
+		"signal_strength",
+		"vwma_position",
+		"analyst_price_target",
+		"date_updated",
+		"signal_date",
+	}
+	foundColumns := make([]string, 0)
+	for rows.Next() {
+		var cid int
+		var name, typeStr string
+		var notnull, pk int
+		var dflt_value sql.NullString
+		if err := rows.Scan(&cid, &name, &typeStr, &notnull, &dflt_value, &pk); err != nil {
+			log.Printf("Error scanning table info: %v", err)
+			continue
+		}
+		foundColumns = append(foundColumns, name)
+		log.Printf("Found column %s: %s", name, typeStr)
+	}
+
+	// Validate schema
+	if len(foundColumns) != len(expectedColumns) {
+		log.Fatalf("Schema mismatch: expected %d columns (%v), found %d columns (%v)",
+			len(expectedColumns), expectedColumns, len(foundColumns), foundColumns)
+	}
+	for i, col := range expectedColumns {
+		if i >= len(foundColumns) || foundColumns[i] != col {
+			log.Fatalf("Schema mismatch: expected column %s at position %d, found %s",
+				col, i, foundColumns[i])
 		}
 	}
 
@@ -85,6 +115,7 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 		case http.MethodGet:
 			rows, err := db.Query("SELECT ticker, signal, signal_strength, vwma_position, analyst_price_target, date_updated, signal_date FROM securities")
 			if err != nil {
+				log.Printf("Error querying database: %v", err)
 				http.Error(w, "Error querying database", http.StatusInternalServerError)
 				return
 			}
@@ -96,9 +127,10 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				var signalStrength int
 				var priceTarget sql.NullFloat64
 				var dateUpdated, signalDate sql.NullTime
-				if err := rows.Scan(&ticker, &signal, &signalStrength, &vwmaPosition, &priceTarget, &dateUpdated, &signalDate); err != nil {
-					http.Error(w, "Error scanning row", http.StatusInternalServerError)
-					return
+				err := rows.Scan(&ticker, &signal, &signalStrength, &vwmaPosition, &priceTarget, &dateUpdated, &signalDate)
+				if err != nil {
+					log.Printf("Error scanning row for ticker %s: %v (skipping row)", ticker, err)
+					continue // Skip problematic row and continue with next
 				}
 				m := map[string]interface{}{
 					"ticker":               ticker,
@@ -123,6 +155,7 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(result); err != nil {
+				log.Printf("Error encoding JSON: %v", err)
 				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 				return
 			}
@@ -149,8 +182,8 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 				priceTarget.Valid = true
 			}
 
-			if alert.Signal == "" {
-				// Handle VWMA-only update
+			if alert.Event == "price_target_change" || alert.Signal == "" {
+				// Handle VWMA-only or price target change update
 				query := `
 				INSERT INTO securities (ticker, signal_strength, vwma_position, analyst_price_target, date_updated)
 				VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -161,13 +194,14 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 					date_updated = CURRENT_TIMESTAMP;`
 				_, err := db.Exec(query, alert.Ticker, alert.SignalStrength, alert.VWMAPosition, priceTarget)
 				if err != nil {
-					log.Printf("Failed to update database for VWMA alert %+v: %v", alert, err)
+					log.Printf("Failed to update database for VWMA/price target alert %+v: %v", alert, err)
 					http.Error(w, fmt.Sprintf("Failed to update database: %v", err), http.StatusInternalServerError)
 					return
 				}
 			} else {
 				// Handle buy/sell signals
 				if alert.Signal != "buy" && alert.Signal != "sell" {
+					log.Printf("Invalid signal for ticker %s: %s", alert.Ticker, alert.Signal)
 					http.Error(w, "Invalid signal (must be 'buy' or 'sell')", http.StatusBadRequest)
 					return
 				}
@@ -188,7 +222,7 @@ func handleWebhook(db *sql.DB) http.HandlerFunc {
 					// Signal is new or has changed, set signal_date to now
 					signalDate = time.Now().UTC()
 				} else {
-					// Signal is the same, preserve existing signal_date or set to NULL if none exists
+					// Signal is the same, preserve existing signal_date or set to NULL
 					if existingSignalDate.Valid {
 						signalDate = existingSignalDate.Time
 					} else {
